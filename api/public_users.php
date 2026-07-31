@@ -17,12 +17,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 setCorsHeaders();
 
-// Дополнительная защита: отклоняем запросы, если origin не пустой и не из белого списка
+// Отклоняем запросы с неразрешённого Origin
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin !== '' && !in_array($origin, ALLOWED_ORIGINS)) {
     http_response_code(403);
     echo json_encode(['error' => 'Forbidden']);
     exit;
+}
+
+// Запросы без Origin (серверные, curl) — только с доверенных IP
+if ($origin === '') {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    if (!in_array($ip, ALLOWED_IPS, true)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Forbidden']);
+        exit;
+    }
 }
 
 Database::initialize();

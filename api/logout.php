@@ -14,7 +14,7 @@ setCorsHeaders();
 Auth::logout();
 
 $redirect = $_GET['redirect'] ?? '';
-if ($redirect !== '') {
+if ($redirect !== '' && isSafeRedirect($redirect)) {
     header('Location: ' . $redirect);
     exit;
 }

@@ -12,6 +12,13 @@ define('ALLOWED_ORIGINS', [
     'https://python.nayanovaacademy.ru',
 ]);
 
+// IP-адреса серверов, которым разрешены серверные вызовы API без Origin
+// (contest, python и т.д.). Значение берётся из .env (DEPLOY_SSH_HOST) —
+// все три проекта деплоятся на общий сервер.
+define('ALLOWED_IPS', [
+    '79.143.31.184', // contest.nayanovaacademy.ru / python.nayanovaacademy.ru (общий сервер)
+]);
+
 ini_set('display_errors', 0);
 ini_set('display_startup_errors', 0);
 error_reporting(E_ALL);
@@ -29,6 +36,7 @@ if (session_status() === PHP_SESSION_NONE) {
         'samesite' => 'Lax',
     ]);
     ini_set('session.use_only_cookies', 1);
+    ini_set('session.gc_maxlifetime', SESSION_LIFETIME);
     session_start();
 }
 
@@ -62,6 +70,16 @@ function sanitizeString(?string $value): string {
         $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
     }
     return $value;
+}
+
+function isSafeRedirect(string $url): bool {
+    if ($url === '') return false;
+    $parts = parse_url($url);
+    if ($parts === false || empty($parts['host']) || ($parts['scheme'] ?? '') !== 'https') {
+        return false;
+    }
+    $host = $parts['host'];
+    return $host === 'nayanovaacademy.ru' || str_ends_with($host, '.nayanovaacademy.ru');
 }
 
 function setCorsHeaders(): void {

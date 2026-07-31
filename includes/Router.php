@@ -52,7 +52,8 @@ class Router
     private function renderLoginPage(): void
     {
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && !empty($_GET['redirect'])) {
-            $_SESSION['redirect_after_login'] = $_GET['redirect'];
+            $redirect = (string) $_GET['redirect'];
+            $_SESSION['redirect_after_login'] = isSafeRedirect($redirect) ? $redirect : BASE_URL . '/index.php';
         }
 
         $error = '';
@@ -72,6 +73,9 @@ class Router
             if ($result['success']) {
                 $redirect = $_SESSION['redirect_after_login'] ?? (BASE_URL . '/index.php');
                 unset($_SESSION['redirect_after_login']);
+                if (!isSafeRedirect($redirect)) {
+                    $redirect = BASE_URL . '/index.php';
+                }
                 header('Location: ' . $redirect);
                 exit;
             }
