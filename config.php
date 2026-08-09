@@ -10,6 +10,7 @@ define('SESSION_LIFETIME', 86400 * 30);
 define('ALLOWED_ORIGINS', [
     'https://contest.nayanovaacademy.ru',
     'https://python.nayanovaacademy.ru',
+    'https://j.nayanovaacademy.ru',
 ]);
 
 // IP-адреса серверов, которым разрешены серверные вызовы API без Origin

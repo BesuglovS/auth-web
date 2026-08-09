@@ -40,6 +40,7 @@ class Router
         match ($this->page) {
             'admin' => require BASE_PATH . '/admin/index.php',
             'admin-users' => require BASE_PATH . '/admin/users.php',
+            'admin-groups' => require BASE_PATH . '/admin/groups.php',
             'admin-change-password' => require BASE_PATH . '/admin/change_password.php',
             default => $this->render404(),
         };

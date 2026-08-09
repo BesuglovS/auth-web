@@ -1,6 +1,6 @@
 <?php
 /**
- * Скрипт миграции пользователей из contest-web в auth-web
+ * Скрипт миграции учеников из contest-web в auth-web
  *
  * Использование:
  *   php scripts/migrate_users.php /path/to/contest.db
@@ -31,9 +31,21 @@ $contestDb = new PDO('sqlite:' . $contestDbPath, null, null, [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 ]);
 
+// В текущем contest-web ученики не хранятся (они живут только в auth-web).
+// Таблица users есть лишь в старых БД, откуда учеников уже перенесли раньше.
+$tables = [];
+foreach ($contestDb->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll() as $row) {
+    $tables[$row['name']] = true;
+}
+if (!isset($tables['users'])) {
+    echo "В contest-web нет таблицы users — ученики уже были перенесены в auth-web ранее.\n";
+    echo "Эта миграция больше не нужна (contest-web работает через SSO auth-web).\n";
+    exit(0);
+}
+
 $users = $contestDb->query("SELECT id, login, display_name, password_hash, is_admin, created_at FROM users ORDER BY id")->fetchAll();
 
-echo "Найдено пользователей в contest-web: " . count($users) . "\n\n";
+echo "Найдено учеников в contest-web: " . count($users) . "\n\n";
 
 $imported = 0;
 $skipped = 0;

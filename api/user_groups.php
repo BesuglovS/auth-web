@@ -1,11 +1,12 @@
 <?php
 /**
- * Публичный эндпоинт для синхронизации учеников.
- * Отдаёт список всех учеников (без паролей).
+ * Принадлежность учеников к классам.
+ * Отдаёт все пары user_id -> group_id.
  * Доступен только с доверенных хостов (CORS + IP).
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
+require_once __DIR__ . '/../includes/Auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -17,7 +18,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 setCorsHeaders();
 
-// Отклоняем запросы с неразрешённого Origin
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin !== '' && !in_array($origin, ALLOWED_ORIGINS)) {
     http_response_code(403);
@@ -25,7 +25,6 @@ if ($origin !== '' && !in_array($origin, ALLOWED_ORIGINS)) {
     exit;
 }
 
-// Запросы без Origin (серверные, curl) — только с доверенных IP
 if ($origin === '') {
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
     if (!in_array($ip, ALLOWED_IPS, true)) {
@@ -36,9 +35,5 @@ if ($origin === '') {
 }
 
 Database::initialize();
-$db = Database::getInstance();
-$users = $db->query(
-    "SELECT id, login, display_name, is_admin, created_at FROM users ORDER BY login"
-)->fetchAll();
 
-echo json_encode(['users' => $users]);
+echo json_encode(['memberships' => Auth::getAllMemberships()]);

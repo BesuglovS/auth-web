@@ -1,5 +1,5 @@
 <?php
-$pageTitle = 'Управление пользователями';
+$pageTitle = 'Управление учениками';
 $db = Database::getInstance();
 $message = '';
 $error = '';
@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($login && $displayName && $password) {
             $result = Auth::createUser($login, $displayName, $password, (bool) $isAdmin);
             if ($result['success']) {
-                $message = 'Пользователь создан';
+                $message = 'Ученик создан';
             } else {
                 $error = $result['error'];
             }
@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($id && $login && $displayName) {
             $result = Auth::updateUser($id, $login, $displayName, (bool) $isAdmin, $password ?: null);
             if ($result['success']) {
-                $message = 'Пользователь обновлён';
+                $message = 'Ученик обновлён';
             } else {
                 $error = $result['error'];
             }
@@ -49,9 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($id == 1) {
             $error = 'Нельзя удалить первого администратора';
         } elseif (Auth::deleteUser($id)) {
-            $message = 'Пользователь удалён';
+            $message = 'Ученик удалён';
         } else {
-            $error = 'Не удалось удалить пользователя';
+            $error = 'Не удалось удалить ученика';
         }
     }
 
@@ -116,14 +116,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$users = Auth::getAllUsers();
+$groups = Auth::getAllGroups();
+$groupParam = $_GET['group_id'] ?? $_POST['group_id'] ?? null;
+$selectedGroupId = ($groupParam !== null && $groupParam !== '') ? (int) $groupParam : null;
+if ($selectedGroupId === null && !empty($groups)) {
+    $selectedGroupId = (int) $groups[0]['id'];
+}
+
+if ($selectedGroupId === null) {
+    $users = Auth::getAllUsers();
+} elseif ($selectedGroupId === 0) {
+    $users = Auth::getUsersWithoutGroup();
+} else {
+    $users = Auth::getUsersInGroup($selectedGroupId);
+}
+
+$selectedGroupName = null;
+if ($selectedGroupId !== null && $selectedGroupId !== 0) {
+    foreach ($groups as $g) {
+        if ((int) $g['id'] === $selectedGroupId) {
+            $selectedGroupName = $g['name'];
+            break;
+        }
+    }
+}
+
 $editingUser = null;
 if (isset($_GET['edit'])) {
     $editingUser = Auth::getUserById((int) $_GET['edit']);
 }
 ?>
 <div class="auth-card auth-card-wide">
-    <h1 class="auth-title">Пользователи</h1>
+    <h1 class="auth-title">Ученики</h1>
 
     <?php if ($message): ?>
         <div class="alert alert-success"><?= htmlspecialchars($message) ?></div>
@@ -131,12 +155,36 @@ if (isset($_GET['edit'])) {
     <?php if ($error): ?>
         <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
     <?php endif; ?>
+    <?php if (empty($groups)): ?>
+        <div class="alert alert-error">Классы не созданы. Создайте класс на странице «Управление классами».</div>
+    <?php endif; ?>
 
     <div class="admin-section">
-        <h2><?= $editingUser ? 'Редактировать пользователя' : 'Создать пользователя' ?></h2>
+        <h2>Класс</h2>
+        <form method="get" class="auth-form auth-form-compact">
+            <input type="hidden" name="page" value="admin-users">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="group_id">Показывать учеников класса</label>
+                    <select name="group_id" id="group_id" onchange="this.form.submit()">
+                        <?php foreach ($groups as $g): ?>
+                            <option value="<?= (int) $g['id'] ?>" <?= $selectedGroupId === (int) $g['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($g['name']) ?> (<?= (int) $g['user_count'] ?>)
+                            </option>
+                        <?php endforeach; ?>
+                        <option value="0" <?= $selectedGroupId === 0 ? 'selected' : '' ?>>Без класса</option>
+                    </select>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="admin-section">
+        <h2><?= $editingUser ? 'Редактировать ученика' : 'Создать ученика' ?></h2>
         <form method="POST" class="auth-form auth-form-compact">
             <?= csrfField() ?>
             <input type="hidden" name="action" value="<?= $editingUser ? 'edit' : 'create' ?>">
+            <input type="hidden" name="group_id" value="<?= (int) $selectedGroupId ?>">
             <?php if ($editingUser): ?>
                 <input type="hidden" name="id" value="<?= $editingUser['id'] ?>">
             <?php endif; ?>
@@ -162,7 +210,7 @@ if (isset($_GET['edit'])) {
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary"><?= $editingUser ? 'Сохранить' : 'Создать' ?></button>
                     <?php if ($editingUser): ?>
-                        <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="btn btn-secondary">Отмена</a>
+                        <a href="<?= BASE_URL ?>/index.php?page=admin-users&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-secondary">Отмена</a>
                     <?php endif; ?>
                 </div>
             </div>
@@ -174,6 +222,7 @@ if (isset($_GET['edit'])) {
         <form method="POST" enctype="multipart/form-data" class="auth-form auth-form-compact">
             <?= csrfField() ?>
             <input type="hidden" name="action" value="bulk_import">
+            <input type="hidden" name="group_id" value="<?= (int) $selectedGroupId ?>">
             <div class="form-group">
                 <label for="bulk_text">Текст (Имя, Логин, Пароль — по строкам)</label>
                 <textarea id="bulk_text" name="bulk_text" rows="6" placeholder="Иван Иванов, ivanov, password123&#10;Петр Петров, petrov, password456"></textarea>
@@ -189,7 +238,7 @@ if (isset($_GET['edit'])) {
     </div>
 
     <div class="admin-section">
-        <h2>Список пользователей (<?= count($users) ?>)</h2>
+        <h2>Список учеников<?= $selectedGroupName ? ' класса «' . htmlspecialchars($selectedGroupName) . '»' : ($selectedGroupId === 0 ? ' без класса' : '') ?> (<?= count($users) ?>)</h2>
         <div class="table-wrapper">
             <table class="data-table">
                 <thead>
@@ -208,15 +257,16 @@ if (isset($_GET['edit'])) {
                         <td><?= $u['id'] ?></td>
                         <td><?= htmlspecialchars($u['login']) ?></td>
                         <td><?= htmlspecialchars($u['display_name']) ?></td>
-                        <td><?= $u['is_admin'] ? 'Админ' : 'Пользователь' ?></td>
+                        <td><?= $u['is_admin'] ? 'Админ' : 'Ученик' ?></td>
                         <td><?= htmlspecialchars($u['created_at']) ?></td>
                         <td class="actions">
-                            <a href="<?= BASE_URL ?>/index.php?page=admin-users&edit=<?= $u['id'] ?>" class="btn btn-small btn-secondary">Ред.</a>
-                            <a href="<?= BASE_URL ?>/index.php?page=admin-change-password&user_id=<?= $u['id'] ?>" class="btn btn-small btn-secondary">Пароль</a>
+                            <a href="<?= BASE_URL ?>/index.php?page=admin-users&edit=<?= $u['id'] ?>&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-small btn-secondary">Ред.</a>
+                            <a href="<?= BASE_URL ?>/index.php?page=admin-change-password&user_id=<?= $u['id'] ?>&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-small btn-secondary">Пароль</a>
                             <?php if ($u['id'] != 1): ?>
-                            <form method="POST" class="inline-form" onsubmit="return confirm('Удалить пользователя <?= htmlspecialchars($u['login']) ?>?')">
+                            <form method="POST" class="inline-form" onsubmit="return confirm('Удалить ученика <?= htmlspecialchars($u['login']) ?>?')">
                                 <?= csrfField() ?>
                                 <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="group_id" value="<?= (int) $selectedGroupId ?>">
                                 <input type="hidden" name="id" value="<?= $u['id'] ?>">
                                 <button type="submit" class="btn btn-small btn-danger">Удал.</button>
                             </form>

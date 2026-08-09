@@ -1,11 +1,12 @@
 <?php
 /**
- * Публичный эндпоинт для синхронизации учеников.
- * Отдаёт список всех учеников (без паролей).
+ * Единый источник групп (классов).
+ * Отдаёт все группы с количеством учеников.
  * Доступен только с доверенных хостов (CORS + IP).
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
+require_once __DIR__ . '/../includes/Auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -36,9 +37,5 @@ if ($origin === '') {
 }
 
 Database::initialize();
-$db = Database::getInstance();
-$users = $db->query(
-    "SELECT id, login, display_name, is_admin, created_at FROM users ORDER BY login"
-)->fetchAll();
 
-echo json_encode(['users' => $users]);
+echo json_encode(['groups' => Auth::getAllGroups()]);

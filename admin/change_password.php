@@ -3,7 +3,8 @@ $pageTitle = 'Сброс пароля';
 $message = '';
 $error = '';
 $users = Auth::getAllUsers();
-$selectedUserId = '';
+$selectedUserId = (int) ($_GET['user_id'] ?? 0);
+$backGroupId = (int) ($_GET['group_id'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrf()) {
@@ -14,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $confirmPassword = $_POST['confirm_password'] ?? '';
 
         if (!$userId) {
-            $error = 'Выберите пользователя';
+            $error = 'Выберите ученика';
         } elseif ($newPassword !== $confirmPassword) {
             $error = 'Пароли не совпадают';
         } else {
@@ -42,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <form method="POST" class="auth-form">
         <?= csrfField() ?>
         <div class="form-group">
-            <label for="user_id">Пользователь</label>
+            <label for="user_id">Ученик</label>
             <select id="user_id" name="user_id" required>
                 <option value="">— Выберите —</option>
                 <?php foreach ($users as $u): ?>
@@ -62,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Сбросить пароль</button>
-            <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="btn btn-secondary">Назад</a>
+            <a href="<?= BASE_URL ?>/index.php?page=admin-users&group_id=<?= $backGroupId ?>" class="btn btn-secondary">Назад</a>
         </div>
     </form>
 </div>

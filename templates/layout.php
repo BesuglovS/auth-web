@@ -15,7 +15,8 @@
             <nav class="auth-nav">
                 <a href="<?= BASE_URL ?>/index.php" class="nav-link">Главная</a>
                 <?php if (Auth::isAdmin()): ?>
-                <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="nav-link">Пользователи</a>
+                <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="nav-link">Ученики</a>
+                <a href="<?= BASE_URL ?>/index.php?page=admin-groups" class="nav-link">Классы</a>
                 <a href="<?= BASE_URL ?>/index.php?page=admin-change-password" class="nav-link">Сброс пароля</a>
                 <?php endif; ?>
                 <span class="nav-user"><?= htmlspecialchars(Auth::getUserName()) ?></span>

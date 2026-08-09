@@ -45,7 +45,7 @@ class Auth
         $user = $stmt->fetch();
 
         if (!$user) {
-            return ['success' => false, 'error' => 'Пользователь не найден'];
+            return ['success' => false, 'error' => 'Ученик не найден'];
         }
 
         if (!password_verify($password, $user['password_hash'])) {
@@ -132,7 +132,7 @@ class Auth
             return ['success' => true, 'id' => $db->lastInsertId()];
         } catch (PDOException $e) {
             if (str_contains($e->getMessage(), 'UNIQUE')) {
-                return ['success' => false, 'error' => 'Пользователь с таким логином уже существует'];
+                return ['success' => false, 'error' => 'Ученик с таким логином уже существует'];
             }
             return ['success' => false, 'error' => 'Ошибка базы данных'];
         }
@@ -153,14 +153,14 @@ class Auth
             return ['success' => true];
         } catch (PDOException $e) {
             if (str_contains($e->getMessage(), 'UNIQUE')) {
-                return ['success' => false, 'error' => 'Пользователь с таким логином уже существует'];
+                return ['success' => false, 'error' => 'Ученик с таким логином уже существует'];
             }
             return ['success' => false, 'error' => 'Ошибка базы данных'];
         }
     }
 
     /**
-     * Сбросить пароль пользователя (только для администратора)
+     * Сбросить пароль ученика (только для администратора)
      */
     public static function resetPassword(int $userId, string $newPassword): array
     {
@@ -175,7 +175,7 @@ class Auth
         $db = Database::getInstance();
         $user = self::getUserById($userId);
         if (!$user) {
-            return ['success' => false, 'error' => 'Пользователь не найден'];
+            return ['success' => false, 'error' => 'Ученик не найден'];
         }
 
         $hash = password_hash($newPassword, PASSWORD_BCRYPT);
@@ -194,5 +194,172 @@ class Auth
         $stmt = $db->prepare("DELETE FROM users WHERE id = ?");
         $stmt->execute([$id]);
         return $stmt->rowCount() > 0;
+    }
+
+    // ---------- Группы (классы) ----------
+
+    public static function getAllGroups(): array
+    {
+        $db = Database::getInstance();
+        return $db->query(
+            "SELECT g.*, (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS user_count
+             FROM groups g ORDER BY g.id"
+        )->fetchAll();
+    }
+
+    public static function getGroupById(int $id): ?array
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT * FROM groups WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: null;
+    }
+
+    public static function createGroup(string $name, string $description): array
+    {
+        $db = Database::getInstance();
+        try {
+            $stmt = $db->prepare("INSERT INTO groups (name, description) VALUES (?, ?)");
+            $stmt->execute([$name, $description]);
+            return ['success' => true, 'id' => $db->lastInsertId()];
+        } catch (PDOException $e) {
+            if (str_contains($e->getMessage(), 'UNIQUE')) {
+                return ['success' => false, 'error' => 'Класс с таким названием уже существует'];
+            }
+            return ['success' => false, 'error' => 'Ошибка базы данных'];
+        }
+    }
+
+    public static function updateGroup(int $id, string $name, string $description): array
+    {
+        $db = Database::getInstance();
+        try {
+            $stmt = $db->prepare("UPDATE groups SET name = ?, description = ? WHERE id = ?");
+            $stmt->execute([$name, $description, $id]);
+            return ['success' => true];
+        } catch (PDOException $e) {
+            if (str_contains($e->getMessage(), 'UNIQUE')) {
+                return ['success' => false, 'error' => 'Класс с таким названием уже существует'];
+            }
+            return ['success' => false, 'error' => 'Ошибка базы данных'];
+        }
+    }
+
+    public static function deleteGroup(int $id): bool
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare("DELETE FROM groups WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public static function addUserToGroup(int $userId, int $groupId): bool
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare("INSERT OR IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)");
+        $stmt->execute([$userId, $groupId]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public static function removeUserFromGroup(int $userId, int $groupId): bool
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare("DELETE FROM user_groups WHERE user_id = ? AND group_id = ?");
+        $stmt->execute([$userId, $groupId]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public static function getGroupUsers(int $groupId): array
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "SELECT u.id, u.login, u.display_name FROM user_groups ug
+             INNER JOIN users u ON u.id = ug.user_id
+             WHERE ug.group_id = ? ORDER BY u.display_name, u.login"
+        );
+        $stmt->execute([$groupId]);
+        return $stmt->fetchAll();
+    }
+
+    public static function getUsersInGroup(int $groupId): array
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "SELECT u.id, u.login, u.display_name, u.is_admin, u.created_at FROM user_groups ug
+             INNER JOIN users u ON u.id = ug.user_id
+             WHERE ug.group_id = ? ORDER BY u.display_name, u.login"
+        );
+        $stmt->execute([$groupId]);
+        return $stmt->fetchAll();
+    }
+
+    public static function getUsersWithoutGroup(): array
+    {
+        $db = Database::getInstance();
+        return $db->query(
+            "SELECT id, login, display_name, is_admin, created_at FROM users
+             WHERE id NOT IN (SELECT user_id FROM user_groups)
+             ORDER BY login"
+        )->fetchAll();
+    }
+
+    public static function getAllMemberships(): array
+    {
+        $db = Database::getInstance();
+        return $db->query("SELECT user_id, group_id FROM user_groups")->fetchAll();
+    }
+
+    public static function getUserGroupIds(int $userId): array
+    {
+        $memberships = self::getAllMemberships();
+        $ids = [];
+        foreach ($memberships as $m) {
+            if ((int) $m['user_id'] === (int) $userId) {
+                $ids[] = (int) $m['group_id'];
+            }
+        }
+        sort($ids);
+        return array_values(array_unique($ids));
+    }
+
+    public static function getGroupUsersByGroupIds(array $groupIds): array
+    {
+        $memberships = self::getAllMemberships();
+        $map = array_fill_keys(array_map('intval', $groupIds), true);
+        $userIds = [];
+        foreach ($memberships as $m) {
+            if (isset($map[(int) $m['group_id']])) {
+                $userIds[] = (int) $m['user_id'];
+            }
+        }
+        return array_values(array_unique($userIds));
+    }
+
+    public static function bulkAddUsersToGroup(int $groupId, string $rawText): array
+    {
+        $result = ['success' => [], 'failed' => []];
+        $lines = preg_split('/\r\n|\r|\n/', $rawText);
+        foreach ($lines as $lineNum => $line) {
+            $login = trim($line);
+            if ($login === '') {
+                continue;
+            }
+
+            $stmt = Database::getInstance()->prepare("SELECT id, login, display_name FROM users WHERE login = ?");
+            $stmt->execute([$login]);
+            $user = $stmt->fetch();
+
+            if (!$user) {
+                $result['failed'][] = "Строка " . ($lineNum + 1) . ": ученик '" . htmlspecialchars($login) . "' не найден";
+                continue;
+            }
+
+            if (self::addUserToGroup((int) $user['id'], $groupId)) {
+                $result['success'][] = $user['display_name'] . ' (' . $user['login'] . ')';
+            } else {
+                $result['failed'][] = "Строка " . ($lineNum + 1) . " (" . htmlspecialchars($login) . "): уже в классе";
+            }
+        }
+        return $result;
     }
 }
