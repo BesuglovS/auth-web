@@ -70,6 +70,22 @@ class Database
                 FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                course TEXT NOT NULL,
+                module TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                score INTEGER,
+                data TEXT,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (user_id, course, module),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_progress_user ON progress(user_id);
+            CREATE INDEX IF NOT EXISTS idx_progress_user_course ON progress(user_id, course);
+
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id);

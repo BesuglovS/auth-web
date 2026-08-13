@@ -11,6 +11,14 @@ define('ALLOWED_ORIGINS', [
     'https://contest.nayanovaacademy.ru',
     'https://python.nayanovaacademy.ru',
     'https://j.nayanovaacademy.ru',
+    'https://ai.nayanovaacademy.ru',
+    'https://oge.nayanovaacademy.ru',
+    'https://office.nayanovaacademy.ru',
+    'https://inf.nayanovaacademy.ru',
+    'https://vpr.nayanovaacademy.ru',
+    'https://nayanovaacademy.ru',
+    'https://www.nayanovaacademy.ru',
+    'http://localhost:8080',
 ]);
 
 // IP-адреса серверов, которым разрешены серверные вызовы API без Origin
@@ -88,7 +96,7 @@ function setCorsHeaders(): void {
     if (in_array($origin, ALLOWED_ORIGINS)) {
         header('Access-Control-Allow-Origin: ' . $origin);
         header('Access-Control-Allow-Credentials: true');
-        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS');
         header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token');
     }
 }
