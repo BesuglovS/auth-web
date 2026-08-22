@@ -7,5 +7,6 @@ $pageTitle = 'Админ-панель';
         <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="home-link home-link-admin">Управление учениками</a>
         <a href="<?= BASE_URL ?>/index.php?page=admin-groups" class="home-link home-link-admin">Управление классами</a>
         <a href="<?= BASE_URL ?>/index.php?page=admin-change-password" class="home-link home-link-admin">Сбросить пароль</a>
+        <a href="<?= BASE_URL ?>/index.php?page=admin-activity" class="home-link home-link-admin">Активность учеников</a>
     </div>
 </div>

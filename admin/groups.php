@@ -7,7 +7,9 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'create') {
+    if (!validateCsrf()) {
+        $error = 'Недействительный CSRF-токен. Обновите страницу и повторите.';
+    } elseif ($action === 'create') {
         $name = trim($_POST['name'] ?? '');
         $description = trim($_POST['description'] ?? '');
         if ($name === '') {
@@ -20,9 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = $result['error'];
             }
         }
-    }
-
-    if ($action === 'update') {
+    } elseif ($action === 'update') {
         $id = (int) ($_POST['id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $description = trim($_POST['description'] ?? '');
@@ -36,18 +36,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = $result['error'];
             }
         }
-    }
-
-    if ($action === 'delete') {
+    } elseif ($action === 'delete') {
         $id = (int) ($_POST['id'] ?? 0);
         if (Auth::deleteGroup($id)) {
             $message = 'Класс удалён';
         } else {
             $error = 'Не удалось удалить класс';
         }
-    }
-
-    if ($action === 'add_user') {
+    } elseif ($action === 'add_user') {
         $groupId = (int) ($_POST['group_id'] ?? 0);
         $userId = (int) ($_POST['user_id'] ?? 0);
         if (Auth::addUserToGroup($userId, $groupId)) {
@@ -55,16 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Ученик не добавлен';
         }
-    }
-
-    if ($action === 'remove_user') {
+    } elseif ($action === 'remove_user') {
         $groupId = (int) ($_POST['group_id'] ?? 0);
         $userId = (int) ($_POST['user_id'] ?? 0);
         Auth::removeUserFromGroup($userId, $groupId);
         $message = 'Ученик удалён из класса';
-    }
-
-    if ($action === 'bulk_add_users') {
+    } elseif ($action === 'bulk_add_users') {
         $groupId = (int) ($_POST['group_id'] ?? 0);
         $rawText = trim($_POST['bulk_logins'] ?? '');
         if ($rawText === '') {

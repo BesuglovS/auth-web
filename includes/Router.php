@@ -42,6 +42,7 @@ class Router
             'admin-users' => require BASE_PATH . '/admin/users.php',
             'admin-groups' => require BASE_PATH . '/admin/groups.php',
             'admin-change-password' => require BASE_PATH . '/admin/change_password.php',
+            'admin-activity' => require BASE_PATH . '/admin/activity.php',
             default => $this->render404(),
         };
         $content = ob_get_clean();

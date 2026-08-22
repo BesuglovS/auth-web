@@ -8,6 +8,7 @@ define('DB_PATH', BASE_PATH . '/data/auth.db');
 define('SESSION_LIFETIME', 86400 * 30);
 
 define('ALLOWED_ORIGINS', [
+    'https://auth.nayanovaacademy.ru',
     'https://contest.nayanovaacademy.ru',
     'https://python.nayanovaacademy.ru',
     'https://j.nayanovaacademy.ru',
@@ -65,11 +66,9 @@ function validateCsrf(): bool {
     if (empty($token) || empty($_SESSION['csrf_token'])) {
         return false;
     }
-    $valid = hash_equals($_SESSION['csrf_token'], $token);
-    if ($valid) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    }
-    return $valid;
+    // Токен стабилен на всю сессию: без ротации, чтобы формы в нескольких
+    // вкладках и повторные отправки не ломались.
+    return hash_equals($_SESSION['csrf_token'], $token);
 }
 
 function sanitizeString(?string $value): string {
@@ -83,6 +82,10 @@ function sanitizeString(?string $value): string {
 
 function isSafeRedirect(string $url): bool {
     if ($url === '') return false;
+    // Относительные пути внутри сайта (/index.php?page=...), кроме protocol-relative («//host»)
+    if ($url[0] === '/') {
+        return !str_starts_with($url, '//');
+    }
     $parts = parse_url($url);
     if ($parts === false || empty($parts['host']) || ($parts['scheme'] ?? '') !== 'https') {
         return false;
@@ -98,5 +101,34 @@ function setCorsHeaders(): void {
         header('Access-Control-Allow-Credentials: true');
         header('Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS');
         header('Access-Control-Allow-Headers: Content-Type, X-CSRF-Token');
+        // Кэшировать preflight: heartbeat'ы идут каждые 30 с — без кэша
+        // браузер шлёт OPTIONS перед каждым из них.
+        header('Access-Control-Max-Age: 86400');
+    }
+}
+
+// Локальная зона отображения — Самара (UTC+4). Хранение остаётся в UTC.
+function localTimezone(): DateTimeZone {
+    static $tz = null;
+    if ($tz === null) {
+        try {
+            $tz = new DateTimeZone('Europe/Samara');
+        } catch (Exception $e) {
+            $tz = new DateTimeZone('+04:00');
+        }
+    }
+    return $tz;
+}
+
+/**
+ * Перевести UTC-строку из БД в локальное время (UTC+4) для отображения.
+ */
+function displayDateTime(?string $utc): string {
+    if ($utc === null || $utc === '') return '';
+    try {
+        $dt = new DateTimeImmutable($utc, new DateTimeZone('UTC'));
+        return $dt->setTimezone(localTimezone())->format('Y-m-d H:i:s');
+    } catch (Exception $e) {
+        return $utc;
     }
 }

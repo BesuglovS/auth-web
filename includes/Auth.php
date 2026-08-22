@@ -67,6 +67,9 @@ class Auth
         $stmt = $db->prepare("INSERT OR REPLACE INTO sessions (id, user_id, expires_at, ip_address, user_agent) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$sessionId, $user['id'], $expiresAt, $ip, $ua]);
 
+        $stmt = $db->prepare("INSERT INTO activity_sessions (user_id, login_at, ip_address, user_agent, session_key) VALUES (?, datetime('now'), ?, ?, ?)");
+        $stmt->execute([$user['id'], $ip, $ua, $sessionId]);
+
         return ['success' => true];
     }
 
@@ -77,6 +80,10 @@ class Auth
             $db = Database::getInstance();
             $stmt = $db->prepare("DELETE FROM sessions WHERE id = ?");
             $stmt->execute([$sessionId]);
+
+            $stmt = $db->prepare("UPDATE activity_sessions SET logout_at = datetime('now'), last_seen_at = datetime('now') WHERE session_key = ? AND logout_at IS NULL");
+            $stmt->execute([$sessionId]);
+
             session_destroy();
         }
 

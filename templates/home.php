@@ -15,6 +15,7 @@
             <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="home-link home-link-admin">Ученики</a>
             <a href="<?= BASE_URL ?>/index.php?page=admin-groups" class="home-link home-link-admin">Классы</a>
             <a href="<?= BASE_URL ?>/index.php?page=admin-change-password" class="home-link home-link-admin">Сбросить пароль</a>
+            <a href="<?= BASE_URL ?>/index.php?page=admin-activity" class="home-link home-link-admin">Активность</a>
         </div>
     </div>
     <?php endif; ?>

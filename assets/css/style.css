@@ -105,6 +105,16 @@ body {
     max-width: 900px;
 }
 
+.auth-card-extra-wide {
+    max-width: 1400px;
+}
+
+@media (min-width: 1560px) {
+    .auth-card-extra-wide {
+        max-width: calc(100vw - 48px);
+    }
+}
+
 @keyframes slideUp {
     from {
         opacity: 0;
@@ -355,6 +365,45 @@ body {
 
 .inline-form {
     display: inline;
+}
+
+.muted {
+    color: var(--text-muted);
+}
+
+.stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.stat-card {
+    flex: 1;
+    min-width: 160px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+}
+
+.stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.stat-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 20px;
 }
 
 .auth-footer {

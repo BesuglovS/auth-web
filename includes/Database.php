@@ -28,6 +28,9 @@ class Database
             ]);
             self::$instance->exec('PRAGMA journal_mode=WAL');
             self::$instance->exec('PRAGMA foreign_keys=ON');
+            // Ждать освобождения блокировки записи до 5 с вместо мгновенного
+            // SQLITE_BUSY (нужно для BEGIN IMMEDIATE в rate-limit'е track.php).
+            self::$instance->exec('PRAGMA busy_timeout=5000');
         }
         return self::$instance;
     }
@@ -36,6 +39,27 @@ class Database
     {
         $db = self::getInstance();
 
+        // Схема развивается пошагово: PRAGMA user_version как маркер миграции.
+        // Существующая прод-БД на первом запросе после деплоя прогонит только
+        // недостающие шаги (весь DDL — IF NOT EXISTS).
+        $version = (int) $db->query('PRAGMA user_version')->fetchColumn();
+        if ($version < 1) {
+            self::migrate($db);
+            $db->exec('PRAGMA user_version = 1');
+        }
+        if ($version < 2) {
+            self::migrateV2($db);
+            $db->exec('PRAGMA user_version = 2');
+        }
+
+        // Очистка протухших сессий — изредка, а не на каждом запросе.
+        if (random_int(1, 100) === 1) {
+            self::cleanupExpiredSessions($db);
+        }
+    }
+
+    private static function migrate(PDO $db): void
+    {
         $db->exec("
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,6 +113,39 @@ class Database
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups(group_id);
+
+            CREATE TABLE IF NOT EXISTS activity_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                login_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                logout_at DATETIME,
+                last_seen_at DATETIME,
+                ip_address TEXT DEFAULT '',
+                user_agent TEXT DEFAULT '',
+                session_key TEXT DEFAULT '',
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_activity_sessions_user ON activity_sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_activity_sessions_login ON activity_sessions(login_at);
+
+            CREATE TABLE IF NOT EXISTS page_views (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                session_key TEXT DEFAULT '',
+                page_url TEXT NOT NULL,
+                page_title TEXT DEFAULT '',
+                referrer TEXT DEFAULT '',
+                started_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                last_seen_at DATETIME,
+                ended_at DATETIME,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_page_views_user ON page_views(user_id);
+            CREATE INDEX IF NOT EXISTS idx_page_views_user_started ON page_views(user_id, started_at);
+            CREATE INDEX IF NOT EXISTS idx_page_views_started ON page_views(started_at);
         ");
 
         $count = $db->query("SELECT COUNT(*) FROM users")->fetchColumn();
@@ -99,6 +156,22 @@ class Database
         }
 
         self::cleanupExpiredSessions($db);
+    }
+
+    /**
+     * Миграция v2: таблица rate-limit'ов (счётчик фиксированного окна
+     * на ключ, например 'track:{user_id}'). Одна строка на ключ — таблица
+     * не растёт и не требует очистки.
+     */
+    private static function migrateV2(PDO $db): void
+    {
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS rate_limits (
+                name TEXT PRIMARY KEY,
+                window_started_at INTEGER NOT NULL,
+                hits INTEGER NOT NULL DEFAULT 0
+            );
+        ");
     }
 
     private static function cleanupExpiredSessions(PDO $db): void

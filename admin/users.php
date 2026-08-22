@@ -7,7 +7,9 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'create') {
+    if (!validateCsrf()) {
+        $error = 'Недействительный CSRF-токен. Обновите страницу и повторите.';
+    } elseif ($action === 'create') {
         $login = trim($_POST['login'] ?? '');
         $displayName = trim($_POST['display_name'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -23,9 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Заполните все поля';
         }
-    }
-
-    if ($action === 'edit') {
+    } elseif ($action === 'edit') {
         $id = (int) ($_POST['id'] ?? 0);
         $login = trim($_POST['login'] ?? '');
         $displayName = trim($_POST['display_name'] ?? '');
@@ -42,9 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Заполните обязательные поля';
         }
-    }
-
-    if ($action === 'delete') {
+    } elseif ($action === 'delete') {
         $id = (int) ($_POST['id'] ?? 0);
         if ($id == 1) {
             $error = 'Нельзя удалить первого администратора';
@@ -53,9 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = 'Не удалось удалить ученика';
         }
-    }
-
-    if ($action === 'bulk_import') {
+    } elseif ($action === 'bulk_import') {
         $bulkResults = ['success' => [], 'failed' => []];
         $rawText = '';
 
@@ -258,7 +254,7 @@ if (isset($_GET['edit'])) {
                         <td><?= htmlspecialchars($u['login']) ?></td>
                         <td><?= htmlspecialchars($u['display_name']) ?></td>
                         <td><?= $u['is_admin'] ? 'Админ' : 'Ученик' ?></td>
-                        <td><?= htmlspecialchars($u['created_at']) ?></td>
+                        <td><?= htmlspecialchars(displayDateTime($u['created_at'])) ?></td>
                         <td class="actions">
                             <a href="<?= BASE_URL ?>/index.php?page=admin-users&edit=<?= $u['id'] ?>&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-small btn-secondary">Ред.</a>
                             <a href="<?= BASE_URL ?>/index.php?page=admin-change-password&user_id=<?= $u['id'] ?>&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-small btn-secondary">Пароль</a>

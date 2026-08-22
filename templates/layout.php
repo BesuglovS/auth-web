@@ -18,6 +18,7 @@
                 <a href="<?= BASE_URL ?>/index.php?page=admin-users" class="nav-link">Ученики</a>
                 <a href="<?= BASE_URL ?>/index.php?page=admin-groups" class="nav-link">Классы</a>
                 <a href="<?= BASE_URL ?>/index.php?page=admin-change-password" class="nav-link">Сброс пароля</a>
+                <a href="<?= BASE_URL ?>/index.php?page=admin-activity" class="nav-link">Активность</a>
                 <?php endif; ?>
                 <span class="nav-user"><?= htmlspecialchars(Auth::getUserName()) ?></span>
                 <a href="<?= BASE_URL ?>/index.php?page=logout" class="nav-link nav-logout">Выйти</a>
@@ -32,5 +33,6 @@
         </footer>
     </div>
     <script src="<?= BASE_URL ?>/assets/js/main.js"></script>
+    <script src="<?= BASE_URL ?>/assets/js/tracking-client.js"></script>
 </body>
 </html>
