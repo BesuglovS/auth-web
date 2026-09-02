@@ -5,6 +5,7 @@ $db = Database::getInstance();
 $users = Auth::getAllUsers();
 
 $selectedUserId = isset($_GET['user_id']) && $_GET['user_id'] !== '' ? (int) $_GET['user_id'] : null;
+$selectedSessionId = isset($_GET['session']) && $_GET['session'] !== '' ? (int) $_GET['session'] : null;
 $dateFrom = isset($_GET['from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['from']) ? $_GET['from'] : '';
 $dateTo = isset($_GET['to']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to']) ? $_GET['to'] : '';
 if ($dateFrom === '') $dateFrom = date('Y-m-d', strtotime('-30 days'));
@@ -67,7 +68,10 @@ $activeSeconds = (int) $stmt->fetch()['active_seconds'];
 
 // ─── Рабочие сессии ───
 $stmt = $db->prepare(
-    "SELECT a.*, u.login, u.display_name
+    "SELECT a.*, u.login, u.display_name,
+            (SELECT COUNT(*) FROM page_views pv
+              WHERE pv.user_id = a.user_id
+                AND (pv.session_key = a.session_key OR pv.session_key LIKE a.session_key || ':%')) AS views_count
      FROM activity_sessions a
      INNER JOIN users u ON u.id = a.user_id
      WHERE a.login_at BETWEEN ? AND ?" . $userCond . "
@@ -76,30 +80,41 @@ $stmt = $db->prepare(
 $stmt->execute(array_merge([$dayFrom, $dayTo], $userParams));
 $sessions = $stmt->fetchAll();
 
-// ─── Просмотренные страницы (с пагинацией) ───
-$perPage = 200;
-$page = isset($_GET['p']) ? max(1, (int) $_GET['p']) : 1;
-$offset = ($page - 1) * $perPage;
+// ─── Просмотренные страницы выбранной сессии ───
+$selectedSession = null;
+$views = [];
+if ($selectedSessionId !== null) {
+    $stmt = $db->prepare(
+        "SELECT a.*, u.login, u.display_name
+         FROM activity_sessions a
+         INNER JOIN users u ON u.id = a.user_id
+         WHERE a.id = ?"
+    );
+    $stmt->execute([$selectedSessionId]);
+    $selectedSession = $stmt->fetch() ?: null;
+}
 
-$stmt = $db->prepare(
-    "SELECT COUNT(*) FROM page_views pv
-     WHERE pv.started_at BETWEEN ? AND ?" . str_replace('a.', '', $userCond)
-);
-$stmt->execute(array_merge([$dayFrom, $dayTo], $userParams));
-$totalViews = (int) $stmt->fetchColumn();
-$totalPages = max(1, (int) ceil($totalViews / $perPage));
-if ($page > $totalPages) { $page = $totalPages; $offset = ($page - 1) * $perPage; }
-
-$stmt = $db->prepare(
-    "SELECT pv.*, u.login, u.display_name
-     FROM page_views pv
-     INNER JOIN users u ON u.id = pv.user_id
-     WHERE pv.started_at BETWEEN ? AND ?" . str_replace('a.', '', $userCond) . "
-     ORDER BY pv.started_at DESC
-     LIMIT {$perPage} OFFSET {$offset}"
-);
-$stmt->execute(array_merge([$dayFrom, $dayTo], $userParams));
-$views = $stmt->fetchAll();
+if ($selectedSession !== null) {
+    $skey = (string) $selectedSession['session_key'];
+    $conds = ['pv.user_id = ?'];
+    $params = [(int) $selectedSession['user_id']];
+    if ($skey !== '') {
+        // tracking-client пишет ключи вида "<session_id>" или "<session_id>:<tab>"
+        $conds[] = "(pv.session_key = ? OR pv.session_key LIKE ? || ':%')";
+        array_push($params, $skey, $skey);
+    } else {
+        // Старые записи без ключа сессии — матчим по временному окну сессии.
+        $conds[] = 'pv.started_at BETWEEN ? AND ?';
+        array_push(
+            $params,
+            $selectedSession['login_at'],
+            $selectedSession['logout_at'] ?? $selectedSession['last_seen_at'] ?? date('Y-m-d H:i:s')
+        );
+    }
+    $stmt = $db->prepare('SELECT * FROM page_views pv WHERE ' . implode(' AND ', $conds) . ' ORDER BY pv.started_at');
+    $stmt->execute($params);
+    $views = $stmt->fetchAll();
+}
 
 function filterUrl(array $extra): string {
     $params = array_merge([
@@ -107,7 +122,7 @@ function filterUrl(array $extra): string {
         'user_id' => isset($_GET['user_id']) ? $_GET['user_id'] : '',
         'from' => $_GET['from'] ?? '',
         'to' => $_GET['to'] ?? '',
-        'p' => $_GET['p'] ?? '',
+        'session' => isset($_GET['session']) ? $_GET['session'] : '',
     ], $extra);
     foreach ($params as $k => $v) {
         if ($v === '') unset($params[$k]);
@@ -171,7 +186,7 @@ function filterUrl(array $extra): string {
 
     <div class="admin-section">
         <h2>Рабочие сессии (<?= count($sessions) ?>)</h2>
-        <div class="table-wrapper">
+        <div class="table-wrapper sessions-scroll">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -181,12 +196,13 @@ function filterUrl(array $extra): string {
                         <th>Длительность</th>
                         <th>IP</th>
                         <th>Браузер</th>
+                        <th>Страницы</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if ($sessions): ?>
                         <?php foreach ($sessions as $s): ?>
-                        <tr>
+                        <tr<?= $selectedSessionId === (int) $s['id'] ? ' class="row-selected"' : '' ?>>
                             <td>
                                 <?= htmlspecialchars($s['display_name']) ?><br>
                                 <small class="muted"><?= htmlspecialchars($s['login']) ?></small>
@@ -205,23 +221,36 @@ function filterUrl(array $extra): string {
                             </td>
                             <td><?= htmlspecialchars($s['ip_address']) ?></td>
                             <td class="muted" title="<?= htmlspecialchars($s['user_agent']) ?>"><?= htmlspecialchars(mb_substr($s['user_agent'], 0, 40)) ?></td>
+                            <td>
+                                <a class="btn btn-small btn-secondary" href="<?= filterUrl(['session' => (int) $s['id']]) ?>">
+                                    <?= (int) $s['views_count'] ?>
+                                </a>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
-                        <tr><td colspan="6" class="muted">За период нет данных о сессиях</td></tr>
+                        <tr><td colspan="7" class="muted">За период нет данных о сессиях</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
         </div>
     </div>
 
+    <?php if ($selectedSession !== null): ?>
     <div class="admin-section">
-        <h2>Просмотренные страницы (<?= $totalViews ?>)</h2>
+        <h2>Просмотренные страницы (<?= count($views) ?>)</h2>
+        <p class="muted">
+            Сессия:
+            <?= htmlspecialchars($selectedSession['display_name']) ?>
+            (<?= htmlspecialchars($selectedSession['login']) ?>),
+            <?= htmlspecialchars(displayDateTime($selectedSession['login_at'])) ?>
+            — <?= $selectedSession['logout_at'] !== null ? htmlspecialchars(displayDateTime($selectedSession['logout_at'])) : 'открыта' ?>.
+            <a href="<?= filterUrl(['session' => '']) ?>">← все сессии</a>
+        </p>
         <div class="table-wrapper">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Ученик</th>
                         <th>Страница</th>
                         <th>Начало просмотра</th>
                         <th>Длительность</th>
@@ -231,10 +260,6 @@ function filterUrl(array $extra): string {
                     <?php if ($views): ?>
                         <?php foreach ($views as $v): ?>
                         <tr>
-                            <td>
-                                <?= htmlspecialchars($v['display_name']) ?><br>
-                                <small class="muted"><?= htmlspecialchars($v['login']) ?></small>
-                            </td>
                             <td>
                                 <?php if (preg_match('#^https?://#', $v['page_url'])): ?>
                                     <a href="<?= htmlspecialchars($v['page_url']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars($v['page_url']) ?></a>
@@ -248,22 +273,15 @@ function filterUrl(array $extra): string {
                         </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
-                        <tr><td colspan="4" class="muted">За период нет данных о просмотрах</td></tr>
+                        <tr><td colspan="3" class="muted">В этой сессии нет данных о просмотрах страниц</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
         </div>
-
-        <?php if ($totalPages > 1): ?>
-        <div class="pagination">
-            <?php if ($page > 1): ?>
-                <a class="btn btn-small btn-secondary" href="<?= filterUrl(['p' => $page - 1]) ?>">← Назад</a>
-            <?php endif; ?>
-            <span class="muted">Страница <?= $page ?> из <?= $totalPages ?></span>
-            <?php if ($page < $totalPages): ?>
-                <a class="btn btn-small btn-secondary" href="<?= filterUrl(['p' => $page + 1]) ?>">Вперёд →</a>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
     </div>
+    <?php else: ?>
+    <div class="admin-section">
+        <p class="muted">Выберите сессию в таблице выше, чтобы увидеть просмотренные страницы.</p>
+    </div>
+    <?php endif; ?>
 </div>

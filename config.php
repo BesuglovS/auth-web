@@ -7,7 +7,7 @@ define('DB_PATH', BASE_PATH . '/data/auth.db');
 
 define('SESSION_LIFETIME', 86400 * 30);
 
-define('ALLOWED_ORIGINS', [
+$allowedOrigins = [
     'https://auth.nayanovaacademy.ru',
     'https://contest.nayanovaacademy.ru',
     'https://python.nayanovaacademy.ru',
@@ -19,8 +19,16 @@ define('ALLOWED_ORIGINS', [
     'https://vpr.nayanovaacademy.ru',
     'https://nayanovaacademy.ru',
     'https://www.nayanovaacademy.ru',
-    'http://localhost:8080',
-]);
+];
+
+// Dev-origin по http разрешён только при локальном запуске auth-web.
+// На проде HTTP_HOST — всегда *.nayanovaacademy.ru, и localhost в список не попадает.
+$authHost = strtolower((string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+if ($authHost === '' || preg_match('/^(localhost|127\.0\.0\.1)(:\d+)?$/', $authHost)) {
+    $allowedOrigins[] = 'http://localhost:8080';
+}
+
+define('ALLOWED_ORIGINS', $allowedOrigins);
 
 // IP-адреса серверов, которым разрешены серверные вызовы API без Origin
 // (contest, python и т.д.). Значение берётся из .env (DEPLOY_SSH_HOST) —

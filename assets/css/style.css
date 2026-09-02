@@ -357,6 +357,23 @@ body {
     background: var(--bg);
 }
 
+.data-table tbody tr.row-selected,
+.data-table tbody tr.row-selected:hover {
+    background: var(--primary-light);
+}
+
+/* Список сессий: высота ~8 строк, прокрутка */
+.sessions-scroll {
+    max-height: 595px;
+    overflow-y: auto;
+}
+
+.sessions-scroll .data-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
 .actions {
     display: flex;
     gap: 8px;

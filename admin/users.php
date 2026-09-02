@@ -31,11 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $displayName = trim($_POST['display_name'] ?? '');
         $password = $_POST['password'] ?? '';
         $isAdmin = isset($_POST['is_admin']) ? 1 : 0;
+        $newGroupId = (int) ($_POST['edit_group_id'] ?? 0);
 
         if ($id && $login && $displayName) {
             $result = Auth::updateUser($id, $login, $displayName, (bool) $isAdmin, $password ?: null);
             if ($result['success']) {
+                Auth::setUserGroup($id, $newGroupId > 0 ? $newGroupId : null);
                 $message = 'Ученик обновлён';
+                $editingUser = null;
             } else {
                 $error = $result['error'];
             }
@@ -54,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'bulk_import') {
         $bulkResults = ['success' => [], 'failed' => []];
         $rawText = '';
+        $importGroupId = (int) ($_POST['group_id'] ?? 0);
 
         if (!empty($_FILES['bulk_file']['tmp_name'])) {
             $rawText = file_get_contents($_FILES['bulk_file']['tmp_name']);
@@ -97,6 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $result = Auth::createUser($login, $displayName, $password);
                 if ($result['success']) {
+                    if ($importGroupId > 0) {
+                        Auth::setUserGroup((int) $result['id'], $importGroupId);
+                    }
                     $bulkResults['success'][] = $login;
                 } else {
                     $bulkResults['failed'][] = "Строка " . ($lineNum + 1) . ": " . $result['error'];
@@ -203,6 +210,20 @@ if (isset($_GET['edit'])) {
                         Админ
                     </label>
                 </div>
+                <?php if ($editingUser): ?>
+                <?php $currentGroupId = Auth::getUserGroupId((int) $editingUser['id']); ?>
+                <div class="form-group">
+                    <label for="edit_group_id">Класс</label>
+                    <select name="edit_group_id" id="edit_group_id">
+                        <option value="0" <?= $currentGroupId === null ? 'selected' : '' ?>>Без класса</option>
+                        <?php foreach ($groups as $g): ?>
+                            <option value="<?= (int) $g['id'] ?>" <?= $currentGroupId === (int) $g['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($g['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php endif; ?>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary"><?= $editingUser ? 'Сохранить' : 'Создать' ?></button>
                     <?php if ($editingUser): ?>

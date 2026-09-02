@@ -74,9 +74,14 @@ function trackRateLimit(PDO $db, int $userId): bool {
     $name = 'track:' . $userId;
     $now = time();
 
-    // BEGIN IMMEDIATE сериализует конкурентные вкладки одного ученика,
-    // чтобы параллельные heartbeat'ы не проскочили лимит вместе.
+    // BEGIN IMMEDIATE сериализует конкурентные вкладки одного ученика.
+    // Нюанс версий PHP: на старых pdo_sqlite (8.1 Ubuntu) exec('BEGIN') не
+    // регистрирует транзакцию в драйвере — commit()/rollBack() бросают
+    // "There is no active transaction", а SQLite-транзакция остаётся висеть.
+    // Поэтому определяем режим по inTransaction() сразу после BEGIN
+    // (логика общая с Auth::immediateTxn).
     $db->exec('BEGIN IMMEDIATE');
+    $driverTxn = $db->inTransaction();
     try {
         $stmt = $db->prepare("SELECT window_started_at, hits FROM rate_limits WHERE name = ?");
         $stmt->execute([$name]);
@@ -98,10 +103,16 @@ function trackRateLimit(PDO $db, int $userId): bool {
             $stmt->execute([$name]);
         }
 
-        $db->commit();
+        if ($driverTxn) { $db->commit(); } else { $db->exec('COMMIT'); }
         return $allowed;
     } catch (Throwable $e) {
-        $db->rollBack();
+        try {
+            if ($driverTxn) {
+                if ($db->inTransaction()) { $db->rollBack(); }
+            } else {
+                $db->exec('ROLLBACK');
+            }
+        } catch (Throwable $ignored) {}
         throw $e;
     }
 }

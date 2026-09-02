@@ -1,6 +1,11 @@
 <?php
 class Auth
 {
+    // Защита от брутфорса: не более LOGIN_RATE_LIMIT неудачных попыток
+    // на логин И на IP за LOGIN_RATE_WINDOW секунд (таблица rate_limits).
+    private const LOGIN_RATE_WINDOW = 300;
+    private const LOGIN_RATE_LIMIT = 10;
+
     public static function isLoggedIn(): bool
     {
         return isset($_SESSION['user_id']);
@@ -37,20 +42,45 @@ class Auth
         ];
     }
 
+    /**
+     * Проверить авторизацию по логину/паролю.
+     * Неудачные попытки учитываются rate-limiter'ом, успешный вход сбрасывает счётчики.
+     */
     public static function login(string $login, string $password): array
     {
         $db = Database::getInstance();
+
+        $rateKeys = [
+            'login:' . strtolower(trim($login)),
+            'ip:' . ($_SERVER['REMOTE_ADDR'] ?? ''),
+        ];
+        // Rate-limiter — защита глубокой эшелонировки: если инфраструктура
+        // лимитера сломалась, вход НЕ блокируем (пишем в лог и идём дальше).
+        try {
+            foreach ($rateKeys as $key) {
+                if (!self::loginRateAllowed($db, $key)) {
+                    return ['success' => false, 'error' => 'Слишком много попыток входа. Повторите через несколько минут.'];
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[auth] login rate-limit check failed: ' . $e->getMessage());
+        }
+
         $stmt = $db->prepare("SELECT * FROM users WHERE login = ?");
         $stmt->execute([$login]);
         $user = $stmt->fetch();
 
         if (!$user) {
+            self::loginRateRecordSafe($db, $rateKeys);
             return ['success' => false, 'error' => 'Ученик не найден'];
         }
 
         if (!password_verify($password, $user['password_hash'])) {
+            self::loginRateRecordSafe($db, $rateKeys);
             return ['success' => false, 'error' => 'Неверный пароль'];
         }
+
+        self::loginRateResetSafe($db, $rateKeys);
 
         session_regenerate_id(true);
 
@@ -71,6 +101,102 @@ class Auth
         $stmt->execute([$user['id'], $ip, $ua, $sessionId]);
 
         return ['success' => true];
+    }
+
+    /**
+     * Есть ли ещё лимит попыток входа для ключа (фиксированное окно).
+     * BEGIN IMMEDIATE сериализует конкурентные запросы.
+     *
+     * Нюанс версий PHP: на новых PHP exec('BEGIN') регистрирует транзакцию
+     * в PDO (inTransaction()=true, нужен commit()), на старых (8.1 Ubuntu) —
+     * НЕ регистрирует (нужен exec('COMMIT')). Определяем по факту и держим
+     * оба уровня состояния согласованными.
+     */
+    private static function loginRateAllowed(PDO $db, string $name): bool
+    {
+        return self::immediateTxn($db, function (PDO $db) use ($name): bool {
+            $now = time();
+
+            $stmt = $db->prepare("SELECT window_started_at, hits FROM rate_limits WHERE name = ?");
+            $stmt->execute([$name]);
+            $row = $stmt->fetch();
+
+            if (!$row || ($now - (int) $row['window_started_at']) >= self::LOGIN_RATE_WINDOW) {
+                $stmt = $db->prepare(
+                    "INSERT INTO rate_limits (name, window_started_at, hits) VALUES (?, ?, 0)
+                     ON CONFLICT(name) DO UPDATE SET
+                       window_started_at = excluded.window_started_at,
+                       hits = 0"
+                );
+                $stmt->execute([$name, $now]);
+                return true;
+            }
+            return (int) $row['hits'] < self::LOGIN_RATE_LIMIT;
+        });
+    }
+
+    /**
+     * Открыть BEGIN IMMEDIATE, выполнить $fn, закоммитить — совместимо
+     * с любым поведением pdo_sqlite (см. комментарий у loginRateAllowed).
+     */
+    private static function immediateTxn(PDO $db, callable $fn)
+    {
+        $db->exec('BEGIN IMMEDIATE');
+        // true — драйвер сам отслеживает транзакцию; false — транзакция
+        // открыта только на уровне SQLite, коммитим тоже через SQL.
+        $driverTxn = $db->inTransaction();
+        try {
+            $result = $fn($db);
+            if ($driverTxn) { $db->commit(); } else { $db->exec('COMMIT'); }
+            return $result;
+        } catch (Throwable $e) {
+            try {
+                if ($driverTxn) {
+                    if ($db->inTransaction()) { $db->rollBack(); }
+                } else {
+                    $db->exec('ROLLBACK');
+                }
+            } catch (Throwable $ignored) {}
+            throw $e;
+        }
+    }
+
+    /** Засчитать неудачную попытку входа по всем ключам */
+    private static function loginRateRecord(PDO $db, array $names): void
+    {
+        self::immediateTxn($db, function (PDO $db) use ($names): void {
+            $now = time();
+            $stmt = $db->prepare(
+                "INSERT INTO rate_limits (name, window_started_at, hits) VALUES (?, ?, 1)
+                 ON CONFLICT(name) DO UPDATE SET hits = hits + 1"
+            );
+            foreach ($names as $name) {
+                $stmt->execute([$name, $now]);
+            }
+        });
+    }
+
+    /** Обёртка: сбой учёта неудачных попыток не должен ломать сам логин */
+    private static function loginRateRecordSafe(PDO $db, array $names): void
+    {
+        try {
+            self::loginRateRecord($db, $names);
+        } catch (Throwable $e) {
+            error_log('[auth] login rate-limit record failed: ' . $e->getMessage());
+        }
+    }
+
+    /** Сбросить счётчики после успешного входа (сбой не критичен) */
+    private static function loginRateResetSafe(PDO $db, array $names): void
+    {
+        try {
+            $stmt = $db->prepare("DELETE FROM rate_limits WHERE name = ?");
+            foreach ($names as $name) {
+                $stmt->execute([$name]);
+            }
+        } catch (Throwable $e) {
+            error_log('[auth] login rate-limit reset failed: ' . $e->getMessage());
+        }
     }
 
     public static function logout(): void
@@ -210,7 +336,10 @@ class Auth
         $db = Database::getInstance();
         return $db->query(
             "SELECT g.*, (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS user_count
-             FROM groups g ORDER BY g.id"
+             FROM groups g
+             ORDER BY CAST(substr(g.name, 1, length(g.name) - length(trim(g.name, '0123456789'))) AS INTEGER),
+                      trim(g.name, '0123456789'),
+                      g.id"
         )->fetchAll();
     }
 
@@ -268,6 +397,20 @@ class Auth
         return $stmt->rowCount() > 0;
     }
 
+    /**
+     * Перевести ученика в указанный класс (заменить текущую принадлежность).
+     * Значение 0 (или null) означает «без класса» — удаляет все принадлежности.
+     */
+    public static function setUserGroup(int $userId, ?int $groupId): void
+    {
+        $db = Database::getInstance();
+        $stmt = $db->prepare("DELETE FROM user_groups WHERE user_id = ?");
+        $stmt->execute([$userId]);
+        if ($groupId !== null && $groupId > 0) {
+            self::addUserToGroup($userId, $groupId);
+        }
+    }
+
     public static function removeUserFromGroup(int $userId, int $groupId): bool
     {
         $db = Database::getInstance();
@@ -314,6 +457,15 @@ class Auth
     {
         $db = Database::getInstance();
         return $db->query("SELECT user_id, group_id FROM user_groups")->fetchAll();
+    }
+
+    /**
+     * Текущий класс ученика (первичная группа) либо null, если ученик без класса.
+     */
+    public static function getUserGroupId(int $userId): ?int
+    {
+        $ids = self::getUserGroupIds($userId);
+        return $ids[0] ?? null;
     }
 
     public static function getUserGroupIds(int $userId): array
