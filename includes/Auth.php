@@ -337,8 +337,12 @@ class Auth
         return $db->query(
             "SELECT g.*, (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) AS user_count
              FROM groups g
-             ORDER BY CAST(substr(g.name, 1, length(g.name) - length(trim(g.name, '0123456789'))) AS INTEGER),
-                      trim(g.name, '0123456789'),
+             ORDER BY CAST(substr(g.name, 1, length(g.name) - length(ltrim(g.name, '0123456789'))) AS INTEGER),
+                      trim(ltrim(g.name, '0123456789'), '0123456789'),
+                      CASE WHEN length(ltrim(g.name, '0123456789')) > length(trim(ltrim(g.name, '0123456789'), '0123456789')) THEN 1 ELSE 0 END,
+                      CAST(CASE WHEN length(ltrim(g.name, '0123456789')) > length(trim(ltrim(g.name, '0123456789'), '0123456789'))
+                                THEN substr(ltrim(g.name, '0123456789'), length(trim(ltrim(g.name, '0123456789'), '0123456789')) + 1)
+                                ELSE '0' END AS INTEGER),
                       g.id"
         )->fetchAll();
     }
