@@ -1,6 +1,6 @@
 # AGENTS.md — Инструкции для ИИ-ассистентов
 
-SSO-хаб и общее хранилище данных (пользователи, классы, прогресс, активность) экосистемы
+SSO-хаб и общее хранилище данных (пользователи, ученики, родители, классы, прогресс, активность) экосистемы
 Nayanova Academy. Чистый **PHP 8 + SQLite** без зависимостей и фреймворков. Прод: `https://auth.nayanovaacademy.ru`.
 От этого проекта зависит авторизация **всех** поддоменов (contest, python, ai, j, oge, office, inf, vpr, na).
 
@@ -25,11 +25,22 @@ Nayanova Academy. Чистый **PHP 8 + SQLite** без зависимосте�
 6. **`.env` читается только `deploy.ps1`**; PHP его не читает. Никогда не печатайте значения
    `.env` и дефолтный пароль админа `admin` (авто-сид в пустую таблицу `users` при `Database::initialize()`).
 7. **Часовые пояса**: в БД все метки UTC; пользовательское время — через `displayDateTime()`/`localTimezone()` (UTC+4, Самара).
-8. **Локальная `data/auth.db` — устаревший снапшот схемы** (только `users`+`sessions`). Не считайте её
-   продакшен-авторитетом; живёт БД на сервере и исключена из git/деплоя.
-9. **Синхронизация канонических файлов**: `assets/js/tracking-client.js` (здесь каноничный) и файлы
-   из `na-web/shared/` (`php/auth-client/AuthClient.php`, `js/progress-client.js`) копируются на поддомены
-   через `na-web/shared/sync.ps1`. После правки здесь — запустите синк, иначе экосистема разойдётся.
+8. **`data/auth.db` — устаревший снапшот схемы** (только `users`+`sessions`). Не считайте её
+   продакшен-авторитетом; живёт БД на сервере и исключена из git/деплоя. Схема — программные миграции
+   `Database.php` (`PRAGMA user_version`; v3 = родители: `parents`, `student_parents`).
+9. **Родители — единый источник здесь.** У каждого родителя обязательна учётная запись (`parents.user_id`
+   NOT NULL UNIQUE → users), админка `admin/parents.php` (`page=admin-parents`, класс includes/Parents.php),
+   API для зеркал — `api/public_parents.php` (те же гейты CORS/IP, что и `public_users.php`); j-web синхронизирует
+   родителей в своё read-only зеркало. POST-мутации (create/update/delete/attach/detach) после коммита дополнительно
+   пингуют `PARENT_MIRROR_NOTIFY_URL` (внутренний эндпоинт журнала `/api/internal/parents-sync`, trusted IP) —
+   зеркало обновляется мгновенно; сбой уведомления не откатывает изменение (best-effort, error_log).
+   Массовый импорт родителей (`Parents::bulkCreate`) — на странице класса (`admin/groups.php?edit=`):
+   после импорта открывается блок привязки (список импортированных живёт в `$_SESSION['bulk_parents_created']`
+   до привязки или «Скрыть»). Новые учётки/роли в `users` не вводить: «кто родитель» определяется
+   наличием профиля в `parents`.
+10. **Синхронизация канонических файлов**: `assets/js/tracking-client.js` (здесь каноничный) и файлы
+    из `na-web/shared/` (`php/auth-client/AuthClient.php`, `js/progress-client.js`) копируются на поддомены
+    через `na-web/shared/sync.ps1`. После правки здесь — запустите синк, иначе экосистема разойдётся.
 
 ## 🔧 Команды
 
@@ -47,7 +58,7 @@ php -S 127.0.0.1:8080        # локальный dev-сервер (требуе
 config.php               # КЛЮЧЕВОЙ: параметры сессии, ALLOWED_ORIGINS, ALLOWED_IPS, пути, CORS
 index.php                # фронт-контроллер/роутер
 api/                     # JSON-эндпоинты: check.php, login.php, logout.php, progress.php, track.php, groups.php, public_users.php, user_groups.php, admin_*.php ...
-includes/                # PHP-классы: Database, Auth, AuthClient, User, Group и др. (без namespace)
+includes/                # PHP-классы: Database, Auth, Parents, Router (без namespace)
 admin/                   # админка: пользователи, классы, группы, активность, импорт
 assets/js/tracking-client.js   # КАНОНИЧНЫЙ heartbeat-клиент (копируется на поддомены)
 templates/               # PHP-шаблоны (layout.php + партиалы)
@@ -77,8 +88,9 @@ auth.nayanovaacademy.ru  # nginx-конфиг
 
 - Файл `G:\WebSites\na\ssh-private.key` (незашифрованный ключ вне репозитория) — никогда не читать, не печатать, не коммитить.
 - Не коммитить `.env`, `data/*.db*`, логи (защищены `.gitignore`).
-- Известная XSS-дыра: `admin/groups.php` выводит `$bulkErrors` без экранирования — безопасно ТОЛЬКО потому,
-  что `Auth::bulkAddUsersToGroup()` экранирует каждую строку на входе. Сохраняйте это экранирование на источнике.
+- Известная XSS-дыра: `admin/groups.php` выводит `$bulkErrors` и `$bulkParentsErrors` без экранирования —
+  безопасно ТОЛЬКО потому, что `Auth::bulkAddUsersToGroup()` и `Parents::bulkCreate()` экранируют каждую строку
+  на входе. Сохраняйте это экранирование на источнике.
 - `admin/activity.php`: переиспользует SQL-фрагмент через `str_replace('a.', '', $userCond)` и
   интерполирует `LIMIT/OFFSET` (безопасно только по построению) — рефакторить осторожно.
 - README частично устарел (`.htaccess` удалён, новые эндпоинты не описаны). Источник истины — код.

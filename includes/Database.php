@@ -51,6 +51,10 @@ class Database
             self::migrateV2($db);
             $db->exec('PRAGMA user_version = 2');
         }
+        if ($version < 3) {
+            self::migrateV3($db);
+            $db->exec('PRAGMA user_version = 3');
+        }
 
         // Очистка протухших сессий — изредка, а не на каждом запросе.
         if (random_int(1, 100) === 1) {
@@ -171,6 +175,40 @@ class Database
                 window_started_at INTEGER NOT NULL,
                 hits INTEGER NOT NULL DEFAULT 0
             );
+        ");
+    }
+
+    /**
+     * Миграция v3: родители перенесены сюда из j-web (единый источник).
+     * Каждый родитель — учётная запись в users (user_id NOT NULL UNIQUE),
+     * ФИО хранится в профиле parents, связи «родитель–ребёнок» — в
+     * student_parents (обе стороны ссылаются на users: ученики в auth-web
+     * и есть пользователи). Профиль и связи удаляются каскадом вместе
+     * с учётной записью.
+     */
+    private static function migrateV3(PDO $db): void
+    {
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS parents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                last_name TEXT NOT NULL,
+                first_name TEXT NOT NULL,
+                middle_name TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS student_parents (
+                student_id INTEGER NOT NULL,
+                parent_id INTEGER NOT NULL,
+                PRIMARY KEY (student_id, parent_id),
+                FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES parents(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_parents_user ON parents(user_id);
+            CREATE INDEX IF NOT EXISTS idx_student_parents_student ON student_parents(student_id);
+            CREATE INDEX IF NOT EXISTS idx_student_parents_parent ON student_parents(parent_id);
         ");
     }
 

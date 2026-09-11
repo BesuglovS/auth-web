@@ -72,7 +72,7 @@ class Auth
 
         if (!$user) {
             self::loginRateRecordSafe($db, $rateKeys);
-            return ['success' => false, 'error' => 'Ученик не найден'];
+            return ['success' => false, 'error' => 'Пользователь не найден'];
         }
 
         if (!password_verify($password, $user['password_hash'])) {

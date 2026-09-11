@@ -120,6 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $groups = Auth::getAllGroups();
+$parentUserIds = array_flip(Parents::userIdsWithProfile());
 $groupParam = $_GET['group_id'] ?? $_POST['group_id'] ?? null;
 $selectedGroupId = ($groupParam !== null && $groupParam !== '') ? (int) $groupParam : null;
 if ($selectedGroupId === null && !empty($groups)) {
@@ -274,9 +275,10 @@ if (isset($_GET['edit'])) {
                         <td><?= $u['id'] ?></td>
                         <td><?= htmlspecialchars($u['login']) ?></td>
                         <td><?= htmlspecialchars($u['display_name']) ?></td>
-                        <td><?= $u['is_admin'] ? 'Админ' : 'Ученик' ?></td>
+                        <td><?= $u['is_admin'] ? 'Админ' : (isset($parentUserIds[$u['id']]) ? 'Родитель' : 'Ученик') ?></td>
                         <td><?= htmlspecialchars(displayDateTime($u['created_at'])) ?></td>
-                        <td class="actions">
+                        <td>
+                          <div class="actions">
                             <a href="<?= BASE_URL ?>/index.php?page=admin-users&edit=<?= $u['id'] ?>&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-small btn-secondary">Ред.</a>
                             <a href="<?= BASE_URL ?>/index.php?page=admin-change-password&user_id=<?= $u['id'] ?>&group_id=<?= (int) $selectedGroupId ?>" class="btn btn-small btn-secondary">Пароль</a>
                             <?php if ($u['id'] != 1): ?>
@@ -288,6 +290,7 @@ if (isset($_GET['edit'])) {
                                 <button type="submit" class="btn btn-small btn-danger">Удал.</button>
                             </form>
                             <?php endif; ?>
+                          </div>
                         </td>
                     </tr>
                     <?php endforeach; ?>

@@ -7,6 +7,16 @@ define('DB_PATH', BASE_PATH . '/data/auth.db');
 
 define('SESSION_LIFETIME', 86400 * 30);
 
+// Сервер-к-сервер уведомление журнала (j-web): после каждого изменения в
+// списке родителей auth-web сигнализирует внутреннему эндпоинту зеркала —
+// и журнал синхронизируется мгновенно, не дожидаясь своего TTL.
+// На локальном dev-сервере — локальный инстанс журнала (порт 8090).
+$authHostEarly = strtolower((string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? ''));
+$notifyUrl = preg_match('/^(localhost|127\.0\.0\.1)(:\d+)?$/', $authHostEarly) || $authHostEarly === ''
+    ? 'http://127.0.0.1:8090/api/internal/parents-sync'
+    : 'https://j.nayanovaacademy.ru/api/internal/parents-sync';
+define('PARENT_MIRROR_NOTIFY_URL', $notifyUrl);
+
 $allowedOrigins = [
     'https://auth.nayanovaacademy.ru',
     'https://contest.nayanovaacademy.ru',
@@ -33,9 +43,15 @@ define('ALLOWED_ORIGINS', $allowedOrigins);
 // IP-адреса серверов, которым разрешены серверные вызовы API без Origin
 // (contest, python и т.д.). Значение берётся из .env (DEPLOY_SSH_HOST) —
 // все три проекта деплоятся на общий сервер.
-define('ALLOWED_IPS', [
-    '79.143.31.184', // contest.nayanovaacademy.ru / python.nayanovaacademy.ru (общий сервер)
-]);
+define('ALLOWED_IPS', array_merge(
+    [
+        '79.143.31.184', // contest.nayanovaacademy.ru / python.nayanovaacademy.ru (общий сервер)
+    ],
+    // Dev-исключение: локальный сервер-к-сервер (эндпоинты без Origin) —
+    // на проде HTTP_HOST всегда *.nayanovaacademy.ru и в список не попадает.
+    ($authHostEarly !== '' && preg_match('/^(localhost|127\.0\.0\.1)(:\d+)?$/', $authHostEarly))
+        ? ['127.0.0.1', '::1'] : []
+));
 
 ini_set('display_errors', 0);
 ini_set('display_startup_errors', 0);

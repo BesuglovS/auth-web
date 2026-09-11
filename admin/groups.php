@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../includes/Parents.php';
+
 $pageTitle = 'Управление классами';
 $db = Database::getInstance();
 $message = '';
@@ -66,6 +68,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'В класс добавлено учеников: ' . count($bulkResult['success']);
             $bulkErrors = implode('<br>', $bulkResult['failed']);
         }
+    } elseif ($action === 'bulk_add_parents') {
+        $rawText = trim($_POST['bulk_parents'] ?? '');
+        if ($rawText === '') {
+            $error = 'Пустой список родителей';
+        } else {
+            $bulkParents = Parents::bulkCreate($rawText);
+            if ($bulkParents['created']) {
+                // Импортированные родителя показываем дальше в блоке
+                // привязки к ученикам класса (до привязки или отмены).
+                $_SESSION['bulk_parents_created'] = $bulkParents['created'];
+                $message = 'Родителей импортировано: ' . count($bulkParents['created'])
+                    . '. Привяжите их к ученикам в блоке ниже.';
+            } else {
+                $error = 'Не импортировано ни одного родителя';
+            }
+            if ($bulkParents['failed']) {
+                $bulkParentsErrors = implode('<br>', $bulkParents['failed']);
+            }
+        }
+    } elseif ($action === 'attach_parent') {
+        $parentId = (int) ($_POST['parent_id'] ?? 0);
+        $studentId = (int) ($_POST['student_id'] ?? 0);
+        if (Parents::attachChild($parentId, $studentId)) {
+            $message = 'Родитель привязан к ученику';
+            // Привязанного импортированного родителя убираем из блока привязки
+            if (!empty($_SESSION['bulk_parents_created'])) {
+                $_SESSION['bulk_parents_created'] = array_values(array_filter(
+                    $_SESSION['bulk_parents_created'],
+                    fn (array $row): bool => (int) $row['id'] !== $parentId
+                ));
+                if (!$_SESSION['bulk_parents_created']) {
+                    unset($_SESSION['bulk_parents_created']);
+                }
+            }
+        } else {
+            $error = 'Не удалось привязать родителя (возможно, связь уже есть)';
+        }
+    } elseif ($action === 'dismiss_parents') {
+        unset($_SESSION['bulk_parents_created']);
+        $message = 'Блок привязки скрыт';
     }
 }
 
@@ -137,7 +179,8 @@ if (isset($_GET['edit'])) {
                         <tr>
                             <td><?= htmlspecialchars($gu['login']) ?></td>
                             <td><?= htmlspecialchars($gu['display_name']) ?></td>
-                            <td class="actions">
+                            <td>
+                              <div class="actions">
                                 <form method="POST" class="inline-form" onsubmit="return confirm('Убрать ученика <?= htmlspecialchars($gu['display_name']) ?> из класса?')">
                                     <?= csrfField() ?>
                                     <input type="hidden" name="action" value="remove_user">
@@ -145,6 +188,7 @@ if (isset($_GET['edit'])) {
                                     <input type="hidden" name="user_id" value="<?= $gu['id'] ?>">
                                     <button type="submit" class="btn btn-small btn-danger">Убрать</button>
                                 </form>
+                              </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -196,6 +240,75 @@ if (isset($_GET['edit'])) {
                 <button type="submit" class="btn btn-primary">Добавить списком</button>
             </div>
         </form>
+
+        <h2 style="margin-top: 24px;">Добавить родителей списком</h2>
+        <p style="color: var(--text-muted); font-size: 13px;">По строке на родителя: «Фамилия Имя Отчество;логин;пароль» (пароль можно опустить — сгенерируется). После импорта привяжите родителя к ученику в блоке ниже.</p>
+        <?php if (isset($bulkParentsErrors)): ?>
+            <div class="alert alert-error" style="margin-top: 8px;">Ошибки:<br><?= $bulkParentsErrors ?></div>
+        <?php endif; ?>
+        <form method="POST" class="auth-form auth-form-compact">
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="bulk_add_parents">
+            <input type="hidden" name="group_id" value="<?= $editGroup['id'] ?>">
+            <div class="form-group">
+                <label for="bulk_parents">Родители</label>
+                <textarea id="bulk_parents" name="bulk_parents" rows="6" style="font-family: monospace;" placeholder="Иванова Мария Петровна;ivanova_m;parol1&#10;Петрова Ольга Ивановна;petrova"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Импортировать</button>
+            </div>
+        </form>
+
+        <?php $pendingParents = $_SESSION['bulk_parents_created'] ?? []; ?>
+        <?php if ($pendingParents): ?>
+        <h2 style="margin-top: 24px;">Привязать импортированных родителей к ученикам</h2>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Родитель</th>
+                        <th>Ученик класса «<?= htmlspecialchars($editGroup['name']) ?>»</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($pendingParents as $pp): ?>
+                    <?php
+                        $attachedIds = array_map(fn (array $c): int => (int) $c['user_id'], Parents::getChildren((int) $pp['id']));
+                        $freeStudents = array_values(array_filter($groupUsers, fn (array $gu): bool => !in_array((int) $gu['id'], $attachedIds, true)));
+                    ?>
+                    <tr>
+                        <td><?= htmlspecialchars($pp['name']) ?></td>
+                        <td>
+                            <?php if ($freeStudents): ?>
+                            <form method="POST" class="inline-form" style="display:flex;gap:8px;">
+                                <?= csrfField() ?>
+                                <input type="hidden" name="action" value="attach_parent">
+                                <input type="hidden" name="parent_id" value="<?= (int) $pp['id'] ?>">
+                                <select name="student_id" required>
+                                    <option value="">— выберите ученика —</option>
+                                    <?php foreach ($freeStudents as $gs): ?>
+                                        <option value="<?= (int) $gs['id'] ?>"><?= htmlspecialchars($gs['login']) ?> (<?= htmlspecialchars($gs['display_name']) ?>)</option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="submit" class="btn btn-small btn-primary">Привязать</button>
+                            </form>
+                            <?php else: ?>
+                            <span style="color: var(--text-muted);">все ученики класса уже привязаны</span>
+                            <?php endif; ?>
+                        </td>
+                        <td></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <form method="POST" style="margin-top: 8px;">
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="dismiss_parents">
+            <button type="submit" class="btn btn-secondary">Скрыть блок привязки</button>
+        </form>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 
@@ -219,7 +332,8 @@ if (isset($_GET['edit'])) {
                         <td><?= htmlspecialchars($g['name']) ?></td>
                         <td><?= htmlspecialchars($g['description']) ?></td>
                         <td><?= (int) $g['user_count'] ?></td>
-                        <td class="actions">
+                        <td>
+                          <div class="actions">
                             <a href="<?= BASE_URL ?>/index.php?page=admin-groups&edit=<?= $g['id'] ?>" class="btn btn-small btn-secondary">Ред.</a>
                             <form method="POST" class="inline-form" onsubmit="return confirm('Удалить класс <?= htmlspecialchars($g['name']) ?>?')">
                                 <?= csrfField() ?>
@@ -227,6 +341,7 @@ if (isset($_GET['edit'])) {
                                 <input type="hidden" name="id" value="<?= $g['id'] ?>">
                                 <button type="submit" class="btn btn-small btn-danger">Удал.</button>
                             </form>
+                          </div>
                         </td>
                     </tr>
                     <?php endforeach; ?>
