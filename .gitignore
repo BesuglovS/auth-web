@@ -4,3 +4,6 @@ data/*.db-shm
 .env
 *.log
 .php_errors.log
+# учётные данные тьюторов (пароли открытым текстом) — вне репозитория
+scripts/tutors.csv
+runtime/tmp/
