@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../includes/Parents.php';
+
 $pageTitle = 'Управление учениками';
 $db = Database::getInstance();
 $message = '';
