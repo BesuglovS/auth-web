@@ -94,7 +94,7 @@ $excludeArgs = @(
 
 $tarCmd = "tar czf - $excludeArgs -C `"$srcPath`" ."
 $preDeployCmd = "mkdir -p /tmp/auth-backup; cp -f ${remotePath}/data/auth.db ${remotePath}/data/auth.db-wal ${remotePath}/data/auth.db-shm /tmp/auth-backup/ 2>/dev/null || true; find ${remotePath} -mindepth 1 -delete 2>/dev/null || true"
-$postDeployCmd = "mkdir -p ${remotePath}/data; cp -f /tmp/auth-backup/auth.db /tmp/auth-backup/auth.db-wal /tmp/auth-backup/auth.db-shm ${remotePath}/data/ 2>/dev/null || true; chown -R ${webUser}:${webUser} ${remotePath}; chmod -R 775 ${remotePath}/data; find ${remotePath}/data -type f -name '*.db' -exec chmod 664 {} \; ; rm -rf /tmp/auth-backup"
+$postDeployCmd = "mkdir -p ${remotePath}/data; cp -f /tmp/auth-backup/auth.db /tmp/auth-backup/auth.db-wal /tmp/auth-backup/auth.db-shm ${remotePath}/data/ 2>/dev/null || true; chmod 775 ${remotePath}/data 2>/dev/null || true; find ${remotePath}/data -type f -name '*.db' -exec chmod 664 {} \; ; rm -rf /tmp/auth-backup"
 $sshCmd = "ssh $portArg $identityArg $remote `"${preDeployCmd}; tar -xzf - -C ${remotePath}; ${postDeployCmd}`""
 
 Write-Host "`n==> Deploying to ${remote}:${remotePath} ..." -ForegroundColor Cyan
@@ -122,7 +122,7 @@ if ($DryRun) {
 } elseif (Test-Path $nginxLocal) {
   Write-Host "`n==> Deploying nginx config ($nginxSite) ..." -ForegroundColor Cyan
   $scpCmd = "scp $portArg $identityArg `"$nginxLocal`" ${remote}:/tmp/nginx-$nginxSite"
-  $sshNginxCmd = "ssh $portArg $identityArg $remote `"cp /tmp/nginx-$nginxSite $nginxRemote && nginx -t && systemctl reload nginx && rm -f /tmp/nginx-$nginxSite`""
+  $sshNginxCmd = "ssh $portArg $identityArg $remote `"sudo -n /usr/local/sbin/deploy-nginx.sh $nginxSite`""
   cmd /c $scpCmd
   if ($LASTEXITCODE -ne 0) { Write-Host "  Nginx config scp failed" -ForegroundColor Red; exit 1 }
   cmd /c $sshNginxCmd
