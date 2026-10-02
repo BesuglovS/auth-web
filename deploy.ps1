@@ -80,9 +80,7 @@ $excludeArgs = @(
   '--exclude=Thumbs.db',
   '--exclude=.DS_Store',
   '--exclude=Desktop.ini',
-  '--exclude=data/auth.db',
-  '--exclude=data/auth.db-wal',
-  '--exclude=data/auth.db-shm',
+  '--exclude=data',
   '--exclude=*.log',
   '--exclude=php_errors.log',
   '--exclude=.env',
@@ -93,9 +91,16 @@ $excludeArgs = @(
 ) -join ' '
 
 $tarCmd = "tar czf - $excludeArgs -C `"$srcPath`" ."
-$preDeployCmd = "mkdir -p /tmp/auth-backup; cp -f ${remotePath}/data/auth.db ${remotePath}/data/auth.db-wal ${remotePath}/data/auth.db-shm /tmp/auth-backup/ 2>/dev/null || true; find ${remotePath} -mindepth 1 -delete 2>/dev/null || true"
-$postDeployCmd = "mkdir -p ${remotePath}/data; cp -f /tmp/auth-backup/auth.db /tmp/auth-backup/auth.db-wal /tmp/auth-backup/auth.db-shm ${remotePath}/data/ 2>/dev/null || true; chmod 775 ${remotePath}/data 2>/dev/null || true; find ${remotePath}/data -type f -name '*.db' -exec chmod 664 {} \; ; rm -rf /tmp/auth-backup"
-$sshCmd = "ssh $portArg $identityArg $remote `"${preDeployCmd}; tar -xzf - -C ${remotePath}; ${postDeployCmd}`""
+# Схема python-web (2026-10): data/ не стирается и не восстанавливается —
+# каталог и SQLite переживают деплой под www-data. Прежняя схема
+# (cp .db в /tmp + `find -delete` webroot + cp обратно) была
+# backup-suicide: cp от deploy молча проваливался на auth.db
+# (600 www-data после perm-hardening), wipe выполнялся, БД терялась.
+# data/ из tar исключён (--exclude=data), серверный data/ не затрагивается.
+$remoteScript = "find \`"$remotePath\`" -mindepth 1 -maxdepth 1 ! -name 'data' -exec rm -rf {} + 2>/dev/null; " +
+  "mkdir -p \`"$remotePath/data\`" 2>/dev/null; " +
+  "tar -xzf - --skip-old-files -C \`"$remotePath\`""
+$sshCmd = "ssh $portArg $identityArg $remote `"$remoteScript`""
 
 Write-Host "`n==> Deploying to ${remote}:${remotePath} ..." -ForegroundColor Cyan
 
