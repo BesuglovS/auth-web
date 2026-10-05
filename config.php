@@ -27,6 +27,7 @@ $allowedOrigins = [
     'https://office.nayanovaacademy.ru',
     'https://inf.nayanovaacademy.ru',
     'https://vpr.nayanovaacademy.ru',
+    'https://fly.nayanovaacademy.ru',
     'https://nayanovaacademy.ru',
     'https://www.nayanovaacademy.ru',
 ];
