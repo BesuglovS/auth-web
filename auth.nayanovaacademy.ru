@@ -48,6 +48,14 @@ server {
         log_not_found off;
     }
 
+    # Маркер деплоя (version.json) не отдаём публично: коммит keystone-проекта
+    # не должен быть доступен снаружи. check-deploy.ps1 читает его по SSH.
+    location = /version.json {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
     location ~ /\. {
         deny all;
         access_log off;
