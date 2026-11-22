@@ -55,6 +55,13 @@ class Database
             self::migrateV3($db);
             $db->exec('PRAGMA user_version = 3');
         }
+        // v4: единый ISO-8601 UTC формат updated_at (YYYY-MM-DDTHH:MM:SSZ).
+        // До v4 SQLite писал 'YYYY-MM-DD HH:MM:SS' без зоны; клиенты парсили
+        // такую строку как локальное время, что ломало LWW и сброс прогресса.
+        if ($version < 4) {
+            self::migrateV4($db);
+            $db->exec('PRAGMA user_version = 4');
+        }
 
         // Очистка протухших сессий — изредка, а не на каждом запросе.
         if (random_int(1, 100) === 1) {
@@ -106,7 +113,7 @@ class Database
                 completed INTEGER NOT NULL DEFAULT 0,
                 score INTEGER,
                 data TEXT,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
                 UNIQUE (user_id, course, module),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
@@ -209,6 +216,48 @@ class Database
             CREATE INDEX IF NOT EXISTS idx_parents_user ON parents(user_id);
             CREATE INDEX IF NOT EXISTS idx_student_parents_student ON student_parents(student_id);
             CREATE INDEX IF NOT EXISTS idx_student_parents_parent ON student_parents(parent_id);
+        ");
+    }
+
+    /**
+     * Миграция v4: привести существующие updated_at к ISO-8601 UTC.
+     *
+     * Раньше SQLite писал 'YYYY-MM-DD HH:MM:SS' (UTC без суффикса Z).
+     * Браузерный Date.parse трактует такую строку как локальное время,
+     * поэтому в UTC+4 записи «сдвигались» на 4 часа: страдал LWW и
+     * сравнение с маркером сброса __reset__. Формат с 'T'…'Z' однозначен.
+     *
+     * Идемпотентно: строки с 'T' не трогаем; GLOB отсекает мусор,
+     * который strftime превратил бы в NULL (колонка NOT NULL).
+     */
+    private static function migrateV4(PDO $db): void
+    {
+        $legacyPattern =
+            '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]';
+        $legacy = (int) $db->query(
+            "SELECT COUNT(*) FROM progress WHERE updated_at GLOB '$legacyPattern'"
+        )->fetchColumn();
+        if ($legacy === 0) {
+            return;
+        }
+
+        // Перед необратимым изменением данных — консистентная копия.
+        // VACUUM INTO учитывает WAL, в отличие от copy() основного файла.
+        $backup = DB_PATH . '.pre-v4-' . gmdate('YmdHis') . '-' . getmypid() . '-' . bin2hex(random_bytes(4));
+        try {
+            $db->exec('VACUUM INTO ' . $db->quote($backup));
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                'Не удалось создать резервную копию progress перед миграцией v4: ' . $e->getMessage(),
+                0,
+                $e
+            );
+        }
+
+        $db->exec("
+            UPDATE progress
+               SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', updated_at)
+             WHERE updated_at GLOB '$legacyPattern'
         ");
     }
 

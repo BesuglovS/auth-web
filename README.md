@@ -211,6 +211,13 @@ DEPLOY_SSH_KEY=/path/to/key
 - `GET` (без course) → сводка по всем курсам
 - `POST` `{ course, module, completed?, score?, data?, user_id? }` — upsert модуля
 - `PUT` `{ course, updates: [...] }` — пакетный upsert (до 200 модулей)
+- `POST ?action=reset` `{ course }` — удалить прогресс курса на всех устройствах
+  и оставить маркер `__reset__`; записи с `updated_at` старше маркера
+  (или без него) после сброса отклоняются. Требуется JSON и доверенный Origin.
+
+`updated_at` хранится в ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`); миграция v4
+переводит старые значения `YYYY-MM-DD HH:MM:SS` в этот формат и перед изменением
+делает консистентный бэкап `data/auth.db.pre-v4-*` (`VACUUM INTO`).
 
 Браузерный запрос — от имени вошедшего ученика; серверный (доверенный IP)
 может указывать `user_id` явно.

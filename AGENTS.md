@@ -27,7 +27,8 @@ Nayanova Academy. Чистый **PHP 8 + SQLite** без зависимосте�
 7. **Часовые пояса**: в БД все метки UTC; пользовательское время — через `displayDateTime()`/`localTimezone()` (UTC+4, Самара).
 8. **`data/auth.db` — устаревший снапшот схемы** (только `users`+`sessions`). Не считайте её
    продакшен-авторитетом; живёт БД на сервере и исключена из git/деплоя. Схема — программные миграции
-   `Database.php` (`PRAGMA user_version`; v3 = родители: `parents`, `student_parents`).
+   `Database.php` (`PRAGMA user_version`; v3 = родители: `parents`, `student_parents`;
+   v4 = ISO-8601 UTC в `progress.updated_at`).
 9. **Родители — единый источник здесь.** У каждого родителя обязательна учётная запись (`parents.user_id`
    NOT NULL UNIQUE → users), админка `admin/parents.php` (`page=admin-parents`, класс includes/Parents.php),
    API для зеркал — `api/public_parents.php` (те же гейты CORS/IP, что и `public_users.php`); j-web синхронизирует

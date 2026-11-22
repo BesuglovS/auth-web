@@ -72,6 +72,11 @@ function validCourse(string $course): bool {
 }
 
 function validModule(string $module): bool {
+    // __reset__ — служебный маркер серверного сброса; клиент не может его
+    // перезаписать. __summary__ разрешён: его присылает progress-sync.
+    if ($module === '__reset__') {
+        return false;
+    }
     return preg_match('/^[a-zA-Z0-9_.-]{1,64}$/', $module) === 1;
 }
 
@@ -94,6 +99,8 @@ function courseStats(array $rows): array {
     $completed = 0;
     $total = 0;
     foreach ($rows as $module => $row) {
+        // __summary__ — агрегат, __reset__ — маркер серверного сброса.
+        // Ни один из них не является учебным модулем и не входит в total.
         if ($module === '__summary__') {
             $s = $row['data'];
             if (is_array($s)) {
@@ -102,6 +109,9 @@ function courseStats(array $rows): array {
                     'total'     => (int) ($s['total'] ?? 0),
                 ];
             }
+            continue;
+        }
+        if ($module === '__reset__') {
             continue;
         }
         $total++;
@@ -185,6 +195,55 @@ if (!validCourse($course)) {
     exit;
 }
 
+// ─── Серверный сброс прогресса курса ───
+// POST ?action=reset (не DELETE: CORS уже разрешает POST, а клиентские
+// preflight'ы для POST+JSON закэшированы). Удаляем все модули курса и
+// оставляем маркер __reset__ с серверным временем. Клиенты, у которых
+// локальные записи старше маркера, удаляют их и не воскрешают из outbox.
+//
+// Защита: Origin уже проверен выше (ALLOWED_ORIGINS), кука auth_session —
+// SameSite=Lax; для браузерных запросов дополнительно требуем JSON,
+// чтобы обычная HTML-форма не могла инициировать destructive POST.
+$action = isset($_GET['action']) ? (string) $_GET['action'] : '';
+if ($action === 'reset') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Reset requires POST']);
+        exit;
+    }
+    if (!$isServer) {
+        $contentType = (string) ($_SERVER['CONTENT_TYPE'] ?? '');
+        if (stripos($contentType, 'application/json') !== 0) {
+            http_response_code(415);
+            echo json_encode(['error' => 'Content-Type must be application/json']);
+            exit;
+        }
+    }
+
+    $resetAt = (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.v\Z');
+    try {
+        $db->beginTransaction();
+        $db->prepare('DELETE FROM progress WHERE user_id = ? AND course = ?')
+           ->execute([$userId, $course]);
+        $db->prepare(
+            "INSERT INTO progress (user_id, course, module, completed, score, data, updated_at)
+             VALUES (?, ?, '__reset__', 0, NULL, NULL, ?)"
+        )->execute([$userId, $course, $resetAt]);
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        error_log('progress reset failed: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Не удалось сбросить прогресс']);
+        exit;
+    }
+
+    echo json_encode(['success' => true, 'reset_at' => $resetAt]);
+    exit;
+}
+
 $items = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!isset($body['module']) || !validModule((string) $body['module'])) {
@@ -216,7 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $stmt = $db->prepare(
     "INSERT INTO progress (user_id, course, module, completed, score, data, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+     VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
      ON CONFLICT(user_id, course, module) DO UPDATE SET
        completed = excluded.completed,
        score = CASE
@@ -227,14 +286,41 @@ $stmt = $db->prepare(
          WHEN excluded.data IS NOT NULL THEN excluded.data
          ELSE progress.data
        END,
-       updated_at = datetime('now')"
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
 );
 
+// Маркер сброса. После него принимаем только записи, время которых
+// строго позже маркера. Это не даёт старому outbox'у воскресить прогресс
+// на другом устройстве. updated_at приходит от клиента (время последней
+// попытки), поэтому записи без валидного времени после сброса отклоняем:
+// старые клиенты не умеют присылать это поле.
+$resetStmt = $db->prepare(
+    "SELECT updated_at FROM progress
+      WHERE user_id = ? AND course = ? AND module = '__reset__'"
+);
+$resetStmt->execute([$userId, $course]);
+$resetAt = $resetStmt->fetchColumn() ?: null;
+$resetTs = $resetAt !== null ? strtotime((string) $resetAt) : null;
+
+$saved = 0;
 foreach ($items as $item) {
+    if ($resetTs !== false && $resetTs !== null) {
+        $rawTs = $item['updated_at'] ?? null;
+        $itemTs = is_string($rawTs) ? strtotime($rawTs) : false;
+        // Нет времени / время старше маркера — старая запись.
+        // Равное время допускаем: strtotime теряет миллисекунды, а запись,
+        // сделанная сразу после сброса, может попасть в ту же секунду.
+        // Время из будущего (часы устройства убежали) не доверяем.
+        if ($itemTs === false || $itemTs < $resetTs || $itemTs > time() + 300) {
+            continue;
+        }
+    }
+
     $completed = !empty($item['completed']) ? 1 : 0;
     $score = isset($item['score']) && is_numeric($item['score']) ? (int) $item['score'] : null;
     $data = isset($item['data']) ? json_encode($item['data'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
     $stmt->execute([$userId, $course, (string) $item['module'], $completed, $score, $data]);
+    $saved++;
 }
 
-echo json_encode(['success' => true, 'saved' => count($items)]);
+echo json_encode(['success' => true, 'saved' => $saved]);

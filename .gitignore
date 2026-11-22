@@ -1,6 +1,7 @@
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.db.pre-v4-*
 .env
 *.log
 .php_errors.log
